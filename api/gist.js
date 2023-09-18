@@ -1,35 +1,27 @@
-import { renderWakatimeCard } from "../src/cards/wakatime-card.js";
 import {
   clampValue,
   CONSTANTS,
-  parseArray,
-  parseBoolean,
   renderError,
+  parseBoolean,
 } from "../src/common/utils.js";
-import { fetchWakatimeStats } from "../src/fetchers/wakatime-fetcher.js";
 import { isLocaleAvailable } from "../src/translations.js";
+import { renderGistCard } from "../src/cards/gist-card.js";
+import { fetchGist } from "../src/fetchers/gist-fetcher.js";
 
 export default async (req, res) => {
   const {
-    username,
+    id,
     title_color,
     icon_color,
-    hide_border,
-    line_height,
     text_color,
     bg_color,
     theme,
     cache_seconds,
-    hide_title,
-    hide_progress,
-    custom_title,
     locale,
-    layout,
-    langs_count,
-    hide,
-    api_domain,
     border_radius,
     border_color,
+    show_owner,
+    hide_border,
   } = req.query;
 
   res.setHeader("Content-Type", "image/svg+xml");
@@ -39,16 +31,29 @@ export default async (req, res) => {
   }
 
   try {
-    const stats = await fetchWakatimeStats({ username, api_domain });
+    const gistData = await fetchGist(id);
 
     let cacheSeconds = clampValue(
-      parseInt(cache_seconds || CONSTANTS.CARD_CACHE_SECONDS, 10),
+      parseInt(cache_seconds || CONSTANTS.FOUR_HOURS, 10),
       CONSTANTS.FOUR_HOURS,
       CONSTANTS.ONE_DAY,
     );
     cacheSeconds = process.env.CACHE_SECONDS
       ? parseInt(process.env.CACHE_SECONDS, 10) || cacheSeconds
       : cacheSeconds;
+
+    /*
+      if star count & fork count is over 1k then we are kFormating the text
+      and if both are zero we are not showing the stats
+      so we can just make the cache longer, since there is no need to frequent updates
+    */
+    const stars = gistData.starsCount;
+    const forks = gistData.forksCount;
+    const isBothOver1K = stars > 1000 && forks > 1000;
+    const isBothUnder1 = stars < 1 && forks < 1;
+    if (!cache_seconds && (isBothOver1K || isBothUnder1)) {
+      cacheSeconds = CONSTANTS.FOUR_HOURS;
+    }
 
     res.setHeader(
       "Cache-Control",
@@ -58,23 +63,17 @@ export default async (req, res) => {
     );
 
     return res.send(
-      renderWakatimeCard(stats, {
-        custom_title,
-        hide_title: parseBoolean(hide_title),
-        hide_border: parseBoolean(hide_border),
-        hide: parseArray(hide),
-        line_height,
+      renderGistCard(gistData, {
         title_color,
         icon_color,
         text_color,
         bg_color,
         theme,
-        hide_progress,
         border_radius,
         border_color,
         locale: locale ? locale.toLowerCase() : null,
-        layout,
-        langs_count,
+        show_owner: parseBoolean(show_owner),
+        hide_border: parseBoolean(hide_border),
       }),
     );
   } catch (err) {
